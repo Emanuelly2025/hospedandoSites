@@ -1,0 +1,91 @@
+
+name: Pipeline CI/CD - Hospedando Sites
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Validacao CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do projeto
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validar arquivos do site
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from html.parser import HTMLParser
+
+          class ValidadorHTML(HTMLParser):
+              pass
+
+          html = Path("index.html")
+          css = Path("style.css")
+
+          assert html.is_file(), "index.html nao encontrado"
+          assert css.is_file(), "style.css nao encontrado"
+
+          conteudo = html.read_text(encoding="utf-8")
+          assert "<html" in conteudo.lower(), "Tag HTML ausente"
+          assert "style.css" in conteudo, "CSS nao referenciado"
+
+          ValidadorHTML().feed(conteudo)
+
+          assert css.read_text(encoding="utf-8").strip(), \
+              "Arquivo CSS vazio"
+
+          print("Validacoes basicas concluidas!")
+          PY
+
+      - name: Preparar arquivos para deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-validado
+          path: |
+            index.html
+            style.css
+
+  cd:
+    name: Deployment CD
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout do projeto
+        uses: actions/checkout@v4
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Preparar publicacao
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publicar site
+        id: deployment
+        uses: actions/deploy-pages@v4
